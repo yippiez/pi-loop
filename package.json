@@ -1,0 +1,29 @@
+{
+  "name": "pi-loop",
+  "version": "0.1.0",
+  "description": "Pi extension for running prompts and commands in a loop.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "loop",
+    "extension"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yippiez/pi-loop.git"
+  },
+  "files": [
+    "extensions",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

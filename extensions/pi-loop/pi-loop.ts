@@ -32,6 +32,38 @@ function formatElapsed(ms: number): string {
   return `${h}h${rm}m`;
 }
 
+function formatInterval(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h`;
+}
+
+function vw(s: string): number {
+  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").length;
+}
+
+function trunc(s: string, max: number): string {
+  if (vw(s) <= max) return s;
+  // Binary search for the right cutoff
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (vw(s.slice(0, mid)) <= max) lo = mid;
+    else hi = mid - 1;
+  }
+  return s.slice(0, lo) + "…";
+}
+
+function padLine(content: string, contentW: number): string {
+  const w = vw(content);
+  if (w < contentW) return content + " ".repeat(contentW - w);
+  return trunc(content, contentW);
+}
+
 export default function loopExtension(pi: ExtensionAPI) {
   let loopState: LoopState | null = null;
   let activeCtx: ExtensionContext | undefined;
@@ -49,14 +81,10 @@ export default function loopExtension(pi: ExtensionAPI) {
 
   async function runIteration() {
     if (!loopState || loopState.status !== "running") return;
-
     loopState.iteration++;
     try {
-      // Use streamingBehavior to queue if agent is busy
-      (pi.sendUserMessage as any)(loopState.prompt, { streamingBehavior: "followUp" });
-    } catch {
-      // Skip if agent is busy and can't queue
-    }
+      await (pi.sendUserMessage as any)(loopState.prompt, { streamingBehavior: "followUp" });
+    } catch {}
     scheduleNext();
   }
 
@@ -74,32 +102,77 @@ export default function loopExtension(pi: ExtensionAPI) {
     runIteration();
   }
 
+  function updateWidget(ctx: ExtensionContext) {
+    if (!ctx.hasUI) return;
+    if (!loopState || loopState.status !== "running") {
+      ctx.ui.setWidget("pi-loop", undefined);
+      return;
+    }
+    ctx.ui.setWidget(
+      "pi-loop",
+      (_tui: any, theme: any) => ({
+        invalidate() {},
+        render(width: number): string[] {
+          if (!loopState || loopState.status !== "running") return [];
+          const elapsed = formatElapsed(Date.now() - loopState.startedAt);
+          const label = `(${elapsed}) Loop Active`;
+          const styled = theme.fg("error", label);
+          const pad = " ".repeat(Math.max(0, width - label.length));
+          return [`${pad}${styled}`];
+        },
+        dispose() {},
+      }),
+      { placement: "aboveEditor" },
+    );
+  }
+
+  function showStatusBox(ctx: ExtensionContext) {
+    if (!loopState || loopState.status !== "running") {
+      pi.sendUserMessage("No active loop.");
+      return;
+    }
+    if (!ctx.hasUI) return;
+    ctx.ui.custom<void>((_tui, theme, _kb, done) => {
+      const border = (s: string) => theme.fg("error", s);
+      return {
+        render(width: number): string[] {
+          const innerW = Math.max(1, width - 2);
+          const cw = Math.max(1, width - 4);
+          const elapsed = formatElapsed(Date.now() - loopState!.startedAt);
+          const interval = formatInterval(loopState!.intervalMs);
+          const row = (text: string) => `${border("│")} ${padLine(text, cw)} ${border("│")}`;
+          return [
+            border(`╭${"─".repeat(innerW)}╮`),
+            row(theme.fg("error", theme.bold("Loop Active"))),
+            `${border("│")}${" ".repeat(innerW)}${border("│")}`,
+            row(`Prompt:    ${loopState!.prompt}`),
+            row(`Interval:  ${interval}`),
+            row(`Elapsed:   ${elapsed}`),
+            row(`Iteration: ${loopState!.iteration}`),
+            `${border("│")}${" ".repeat(innerW)}${border("│")}`,
+            row(theme.fg("dim", "Press Escape to close")),
+            border(`╰${"─".repeat(innerW)}╯`),
+          ];
+        },
+        handleInput(_data) {
+          done(undefined as any);
+          return { consume: true };
+        },
+      };
+    });
+  }
+
   pi.registerCommand("loop", {
-    description: "Run a prompt repeatedly: /loop [interval] <prompt> | /loop | /loop clear",
+    description: "Run a prompt repeatedly: /loop [interval] <prompt>",
     handler: async (args: string) => {
       const trimmed = args.trim();
 
-      // /loop with no args - show status
+      // /loop with no args - show status widget
       if (!trimmed) {
-        if (loopState && loopState.status === "running") {
-          const elapsed = formatElapsed(Date.now() - loopState.startedAt);
-          pi.sendUserMessage(
-            `Loop #${loopState.iteration} active — running "${loopState.prompt}" every ${formatElapsed(loopState.intervalMs)}, started ${elapsed} ago`,
-          );
+        if (loopState && loopState.status === "running" && activeCtx) {
+          showStatusBox(activeCtx);
         } else {
           pi.sendUserMessage("No active loop.");
-        }
-        return;
-      }
-
-      // /loop clear
-      if (trimmed === "clear") {
-        if (loopState) {
-          const n = loopState.iteration;
-          clearLoop();
-          pi.sendUserMessage(`Loop cleared after ${n} iterations.`);
-        } else {
-          pi.sendUserMessage("No active loop to clear.");
         }
         return;
       }
@@ -127,44 +200,33 @@ export default function loopExtension(pi: ExtensionAPI) {
     },
   });
 
-  function updateWidget(ctx: ExtensionContext) {
-    if (!ctx.hasUI) return;
-    if (!loopState || loopState.status !== "running") {
-      ctx.ui.setWidget("pi-loop", undefined);
-      return;
-    }
-    ctx.ui.setWidget(
-      "pi-loop",
-      (_tui: any, theme: any) => ({
-        invalidate() {},
-        render(width: number): string[] {
-          if (!loopState || loopState.status !== "running") return [];
-          const elapsed = formatElapsed(Date.now() - loopState.startedAt);
-          const n = loopState.iteration;
-          const label = ` #${n} (${elapsed}) Loop Active`;
-          const styled = theme.fg("error", label);
-          const pad = " ".repeat(Math.max(0, width - label.length));
-          return [`${pad}${styled}`];
-        },
-        dispose() {},
-      }),
-      { placement: "aboveEditor" },
-    );
-  }
+  pi.registerCommand("loop:clear", {
+    description: "Stop and clear the current loop",
+    handler: async () => {
+      if (loopState) {
+        const n = loopState.iteration;
+        clearLoop();
+        pi.sendUserMessage(`Loop cleared after ${n} iterations.`);
+      } else {
+        pi.sendUserMessage("No active loop to clear.");
+      }
+    },
+  });
+
+  pi.registerCommand("loop:status", {
+    description: "Show loop status as a red box widget",
+    handler: async () => {
+      if (activeCtx) showStatusBox(activeCtx);
+    },
+  });
 
   pi.on("session_start", (_event, ctx) => {
     activeCtx = ctx;
-    // Initial widget render
     updateWidget(ctx);
-    // Refresh widget every second while loop is running
     const refresh = setInterval(() => {
-      if (loopState && loopState.status === "running") {
-        updateWidget(ctx);
-      }
+      if (loopState && loopState.status === "running") updateWidget(ctx);
     }, 1000);
-    pi.on("session_shutdown", async () => {
-      clearInterval(refresh);
-    });
+    pi.on("session_shutdown", async () => clearInterval(refresh));
   });
 
   pi.on("session_shutdown", async () => {

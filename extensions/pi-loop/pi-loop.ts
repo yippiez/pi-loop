@@ -122,9 +122,9 @@ export default function loopExtension(pi: ExtensionAPI) {
 
     ctx.ui.custom<void>((_tui, theme: Theme, _kb, done) => {
       const container = new Container();
-      const redBorder = (s: string) => theme.fg("error", s);
+      const dimBorder = (s: string) => theme.fg("dim", s);
 
-      container.addChild(new DynamicBorder(redBorder));
+      container.addChild(new DynamicBorder(dimBorder));
       container.addChild(new Text(theme.fg("error", theme.bold("Loop Active")), 1, 0));
       container.addChild(new Spacer(1));
       container.addChild(new Text(theme.fg("text", `Prompt:    ${loopState!.prompt}`), 1, 0));
@@ -133,7 +133,7 @@ export default function loopExtension(pi: ExtensionAPI) {
       container.addChild(new Text(theme.fg("text", `Iteration: ${loopState!.iteration}`), 1, 0));
       container.addChild(new Spacer(1));
       container.addChild(new Text(theme.fg("dim", "Press Escape to close"), 1, 0));
-      container.addChild(new DynamicBorder(redBorder));
+      container.addChild(new DynamicBorder(dimBorder));
 
       return {
         render: (width: number) => container.render(width),

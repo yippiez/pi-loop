@@ -51,6 +51,7 @@ interface Theme {
 export default function loopExtension(pi: ExtensionAPI) {
   let loopState: LoopState | null = null;
   let activeCtx: ExtensionContext | undefined;
+  let statusOpen = false;
 
   function clearLoop() {
     if (loopState?.timer) clearTimeout(loopState.timer);
@@ -88,7 +89,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 
   function updateWidget(ctx: ExtensionContext) {
     if (!ctx.hasUI) return;
-    if (!loopState || loopState.status !== "running") {
+    if (!loopState || loopState.status !== "running" || statusOpen) {
       ctx.ui.setWidget("pi-loop", undefined);
       return;
     }
@@ -117,28 +118,51 @@ export default function loopExtension(pi: ExtensionAPI) {
     }
     if (!ctx.hasUI) return;
 
-    const elapsed = formatElapsed(Date.now() - loopState.startedAt);
-    const interval = formatInterval(loopState.intervalMs);
+    statusOpen = true;
+    updateWidget(ctx);
 
     ctx.ui.custom<void>((_tui, theme: Theme, _kb, done) => {
       const container = new Container();
       const border = (s: string) => theme.fg("error", s);
 
+      const promptText = new Text("", 1, 0);
+      const intervalText = new Text("", 1, 0);
+      const elapsedText = new Text("", 1, 0);
+      const iterationText = new Text("", 1, 0);
+
       container.addChild(new DynamicBorder(border));
       container.addChild(new Spacer(1));
-      container.addChild(new Text(theme.fg("error", `Prompt:    ${loopState!.prompt}`), 1, 0));
-      container.addChild(new Text(theme.fg("error", `Interval:  ${interval}`), 1, 0));
-      container.addChild(new Text(theme.fg("error", `Elapsed:   ${elapsed}`), 1, 0));
-      container.addChild(new Text(theme.fg("error", `Iteration: ${loopState!.iteration}`), 1, 0));
+      container.addChild(promptText);
+      container.addChild(intervalText);
+      container.addChild(elapsedText);
+      container.addChild(iterationText);
       container.addChild(new Spacer(1));
-      container.addChild(new Text(theme.fg("error", "Press Escape to close"), 1, 0));
+      container.addChild(new Text(theme.fg("text", "Press Escape to close"), 1, 0));
       container.addChild(new DynamicBorder(border));
 
+      const close = () => {
+        statusOpen = false;
+        updateWidget(ctx);
+        done(undefined as any);
+      };
+
       return {
-        render: (width: number) => container.render(width),
+        render: (width: number) => {
+          if (loopState) {
+            promptText.setText(theme.fg("text", `Prompt:    ${loopState.prompt}`));
+            intervalText.setText(theme.fg("text", `Interval:  ${formatInterval(loopState.intervalMs)}`));
+            elapsedText.setText(theme.fg("text", `Elapsed:   ${formatElapsed(Date.now() - loopState.startedAt)}`));
+            iterationText.setText(theme.fg("text", `Iteration: ${loopState.iteration}`));
+          }
+          return container.render(width);
+        },
         invalidate: () => container.invalidate(),
+        dispose: () => {
+          statusOpen = false;
+          updateWidget(ctx);
+        },
         handleInput: (_data: string) => {
-          done(undefined as any);
+          close();
           return { consume: true };
         },
       };

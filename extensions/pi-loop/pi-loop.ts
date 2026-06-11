@@ -127,12 +127,12 @@ export default function loopExtension(pi: ExtensionAPI) {
       container.addChild(new DynamicBorder(dimBorder));
       container.addChild(new Text(theme.fg("error", theme.bold("Loop Active")), 1, 0));
       container.addChild(new Spacer(1));
-      container.addChild(new Text(theme.fg("text", `Prompt:    ${loopState!.prompt}`), 1, 0));
-      container.addChild(new Text(theme.fg("text", `Interval:  ${interval}`), 1, 0));
-      container.addChild(new Text(theme.fg("text", `Elapsed:   ${elapsed}`), 1, 0));
-      container.addChild(new Text(theme.fg("text", `Iteration: ${loopState!.iteration}`), 1, 0));
+      container.addChild(new Text(theme.fg("error", `Prompt:    ${loopState!.prompt}`), 1, 0));
+      container.addChild(new Text(theme.fg("error", `Interval:  ${interval}`), 1, 0));
+      container.addChild(new Text(theme.fg("error", `Elapsed:   ${elapsed}`), 1, 0));
+      container.addChild(new Text(theme.fg("error", `Iteration: ${loopState!.iteration}`), 1, 0));
       container.addChild(new Spacer(1));
-      container.addChild(new Text(theme.fg("dim", "Press Escape to close"), 1, 0));
+      container.addChild(new Text(theme.fg("error", "Press Escape to close"), 1, 0));
       container.addChild(new DynamicBorder(dimBorder));
 
       return {

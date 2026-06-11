@@ -1,4 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 
 const MIN_INTERVAL_MS = 5000;
 
@@ -41,27 +43,9 @@ function formatInterval(ms: number): string {
   return `${h}h`;
 }
 
-function vw(s: string): number {
-  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").length;
-}
-
-function trunc(s: string, max: number): string {
-  if (vw(s) <= max) return s;
-  // Binary search for the right cutoff
-  let lo = 0;
-  let hi = s.length;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (vw(s.slice(0, mid)) <= max) lo = mid;
-    else hi = mid - 1;
-  }
-  return s.slice(0, lo) + "…";
-}
-
-function padLine(content: string, contentW: number): string {
-  const w = vw(content);
-  if (w < contentW) return content + " ".repeat(contentW - w);
-  return trunc(content, contentW);
+interface Theme {
+  fg(color: string, text: string): string;
+  bold(text: string): string;
 }
 
 export default function loopExtension(pi: ExtensionAPI) {
@@ -132,29 +116,29 @@ export default function loopExtension(pi: ExtensionAPI) {
       return;
     }
     if (!ctx.hasUI) return;
-    ctx.ui.custom<void>((_tui, theme, _kb, done) => {
-      const border = (s: string) => theme.fg("error", s);
+
+    const elapsed = formatElapsed(Date.now() - loopState.startedAt);
+    const interval = formatInterval(loopState.intervalMs);
+
+    ctx.ui.custom<void>((_tui, theme: Theme, _kb, done) => {
+      const container = new Container();
+      const redBorder = (s: string) => theme.fg("error", s);
+
+      container.addChild(new DynamicBorder(redBorder));
+      container.addChild(new Text(theme.fg("error", theme.bold("Loop Active")), 1, 0));
+      container.addChild(new Spacer(1));
+      container.addChild(new Text(theme.fg("text", `Prompt:    ${loopState!.prompt}`), 1, 0));
+      container.addChild(new Text(theme.fg("text", `Interval:  ${interval}`), 1, 0));
+      container.addChild(new Text(theme.fg("text", `Elapsed:   ${elapsed}`), 1, 0));
+      container.addChild(new Text(theme.fg("text", `Iteration: ${loopState!.iteration}`), 1, 0));
+      container.addChild(new Spacer(1));
+      container.addChild(new Text(theme.fg("dim", "Press Escape to close"), 1, 0));
+      container.addChild(new DynamicBorder(redBorder));
+
       return {
-        render(width: number): string[] {
-          const innerW = Math.max(1, width - 2);
-          const cw = Math.max(1, width - 4);
-          const elapsed = formatElapsed(Date.now() - loopState!.startedAt);
-          const interval = formatInterval(loopState!.intervalMs);
-          const row = (text: string) => `${border("│")} ${padLine(text, cw)} ${border("│")}`;
-          return [
-            border(`╭${"─".repeat(innerW)}╮`),
-            row(theme.fg("error", theme.bold("Loop Active"))),
-            `${border("│")}${" ".repeat(innerW)}${border("│")}`,
-            row(`Prompt:    ${loopState!.prompt}`),
-            row(`Interval:  ${interval}`),
-            row(`Elapsed:   ${elapsed}`),
-            row(`Iteration: ${loopState!.iteration}`),
-            `${border("│")}${" ".repeat(innerW)}${border("│")}`,
-            row(theme.fg("dim", "Press Escape to close")),
-            border(`╰${"─".repeat(innerW)}╯`),
-          ];
-        },
-        handleInput(_data) {
+        render: (width: number) => container.render(width),
+        invalidate: () => container.invalidate(),
+        handleInput: (_data: string) => {
           done(undefined as any);
           return { consume: true };
         },
@@ -167,7 +151,6 @@ export default function loopExtension(pi: ExtensionAPI) {
     handler: async (args: string) => {
       const trimmed = args.trim();
 
-      // /loop with no args - show status widget
       if (!trimmed) {
         if (loopState && loopState.status === "running" && activeCtx) {
           showStatusBox(activeCtx);
@@ -177,7 +160,6 @@ export default function loopExtension(pi: ExtensionAPI) {
         return;
       }
 
-      // /loop <interval> <prompt> or /loop <prompt>
       const parts = trimmed.split(/\s+/);
       const interval = parseInterval(parts[0] ?? "");
       let prompt: string;
@@ -214,7 +196,7 @@ export default function loopExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("loop:status", {
-    description: "Show loop status as a red box widget",
+    description: "Show loop status in a red box",
     handler: async () => {
       if (activeCtx) showStatusBox(activeCtx);
     },

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const MIN_INTERVAL_MS = 5000; // minimum 5s between iterations
+const MIN_INTERVAL_MS = 5000;
 
 interface LoopState {
   prompt: string;
@@ -34,138 +34,160 @@ function formatElapsed(ms: number): string {
 
 export default function loopExtension(pi: ExtensionAPI) {
   let loopState: LoopState | null = null;
+  let activeCtx: ExtensionContext | undefined;
 
   function clearLoop() {
     if (loopState?.timer) clearTimeout(loopState.timer);
     loopState = null;
+    if (activeCtx) updateWidget(activeCtx);
   }
 
-  function scheduleNext(ctx: ExtensionContext) {
+  function scheduleNext() {
     if (!loopState || loopState.status !== "running") return;
-    loopState.timer = setTimeout(() => runIteration(ctx), loopState.intervalMs);
+    loopState.timer = setTimeout(() => runIteration(), loopState!.intervalMs);
   }
 
-  function runIteration(ctx: ExtensionContext) {
+  function isAgentBusy(): boolean {
+    if (!activeCtx) return true;
+    try {
+      // Access internal state if available
+      return (activeCtx as any).isAgentBusy?.() ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  function runIteration() {
     if (!loopState || loopState.status !== "stopped") {
       if (!loopState) return;
     }
+
     // Skip if agent is busy
-    if (ctx.hasUI) {
-      try {
-        // Check agent busy state via API if available
-        const busy = (ctx as any).isAgentBusy?.() ?? false;
-        if (busy) {
-          scheduleNext(ctx);
-          return;
-        }
-      } catch {}
+    if (isAgentBusy()) {
+      scheduleNext();
+      return;
     }
 
     loopState.iteration++;
-    // Send the prompt as a user message
     try {
       pi.sendUserMessage(loopState.prompt, { deliverAs: "followUp" });
     } catch {
-      // If followUp not available, try without options
       try {
         pi.sendUserMessage(loopState.prompt);
       } catch {}
     }
-    scheduleNext(ctx);
+    scheduleNext();
   }
 
-  function startLoop(prompt: string, intervalMs: number, ctx: ExtensionContext) {
+  function startLoop(prompt: string, intervalMs: number) {
     clearLoop();
-    const now = Date.now();
     loopState = {
       prompt,
       intervalMs: Math.max(MIN_INTERVAL_MS, intervalMs),
       iteration: 0,
-      startedAt: now,
+      startedAt: Date.now(),
       status: "running",
       timer: null,
     };
-    // Run first iteration immediately
-    runIteration(ctx);
+    if (activeCtx) updateWidget(activeCtx);
+    runIteration();
   }
 
-  pi.on("session_start", (_event, ctx) => {
-    // Register prompt bar widget
-    if (ctx.hasUI) {
-      ctx.ui.setPromptBar((_tui: any, theme: any) => ({
+  pi.registerCommand("loop", {
+    description: "Run a prompt repeatedly: /loop [interval] <prompt> | /loop | /loop clear",
+    handler: async (args: string) => {
+      const trimmed = args.trim();
+
+      // /loop with no args - show status
+      if (!trimmed) {
+        if (loopState && loopState.status === "running") {
+          const elapsed = formatElapsed(Date.now() - loopState.startedAt);
+          pi.sendUserMessage(
+            `Loop #${loopState.iteration} active — running "${loopState.prompt}" every ${formatElapsed(loopState.intervalMs)}, started ${elapsed} ago`,
+          );
+        } else {
+          pi.sendUserMessage("No active loop.");
+        }
+        return;
+      }
+
+      // /loop clear
+      if (trimmed === "clear") {
+        if (loopState) {
+          const n = loopState.iteration;
+          clearLoop();
+          pi.sendUserMessage(`Loop cleared after ${n} iterations.`);
+        } else {
+          pi.sendUserMessage("No active loop to clear.");
+        }
+        return;
+      }
+
+      // /loop <interval> <prompt> or /loop <prompt>
+      const parts = trimmed.split(/\s+/);
+      const interval = parseInterval(parts[0] ?? "");
+      let prompt: string;
+      let intervalMs: number;
+
+      if (interval !== null) {
+        prompt = parts.slice(1).join(" ");
+        intervalMs = interval;
+      } else {
+        prompt = trimmed;
+        intervalMs = MIN_INTERVAL_MS;
+      }
+
+      if (!prompt) {
+        pi.sendUserMessage("Usage: /loop [interval] <prompt>");
+        return;
+      }
+
+      startLoop(prompt, intervalMs);
+    },
+  });
+
+  function updateWidget(ctx: ExtensionContext) {
+    if (!ctx.hasUI) return;
+    if (!loopState || loopState.status !== "running") {
+      ctx.ui.setWidget("pi-loop", undefined);
+      return;
+    }
+    ctx.ui.setWidget(
+      "pi-loop",
+      (_tui: any, theme: any) => ({
         invalidate() {},
         render(width: number): string[] {
           if (!loopState || loopState.status !== "running") return [];
           const elapsed = formatElapsed(Date.now() - loopState.startedAt);
-          const label = `(${elapsed}) Loop Active`;
-          const right = theme.fg("error", label);
-          const pad = " ".repeat(Math.max(0, width - label.length - 1));
-          return [`${pad}${right}`];
+          const n = loopState.iteration;
+          const label = ` #${n} (${elapsed}) Loop Active`;
+          const styled = theme.fg("error", label);
+          const pad = " ".repeat(Math.max(0, width - label.length));
+          return [`${pad}${styled}`];
         },
-      }));
-    }
+        dispose() {},
+      }),
+      { placement: "aboveEditor" },
+    );
+  }
 
-    pi.registerCommand("loop", {
-      description: "Run a prompt repeatedly: /loop [interval] <prompt> | /loop | /loop clear",
-      handler: async (args: string) => {
-        const trimmed = args.trim();
-
-        // /loop with no args - show status
-        if (!trimmed) {
-          if (!loopState || loopState.status !== "stopped") {
-            if (!loopState) {
-              pi.sendUserMessage("No active loop.");
-              return;
-            }
-            const elapsed = formatElapsed(Date.now() - loopState.startedAt);
-            pi.sendUserMessage(
-              `Loop #${loopState.iteration} active — running "${loopState.prompt}" every ${formatElapsed(loopState.intervalMs)}, started ${elapsed} ago`
-            );
-          } else {
-            pi.sendUserMessage("No active loop.");
-          }
-          return;
-        }
-
-        // /loop clear
-        if (trimmed === "clear") {
-          if (loopState) {
-            const n = loopState.iteration;
-            clearLoop();
-            pi.sendUserMessage(`Loop cleared after ${n} iterations.`);
-          } else {
-            pi.sendUserMessage("No active loop to clear.");
-          }
-          return;
-        }
-
-        // /loop <interval> <prompt> or /loop <prompt>
-        const parts = trimmed.split(/\s+/);
-        const interval = parseInterval(parts[0] ?? "");
-        let prompt: string;
-        let intervalMs: number;
-
-        if (interval !== null) {
-          // /loop 30s prompt text
-          prompt = parts.slice(1).join(" ");
-          intervalMs = interval;
-        } else {
-          // /loop prompt text (no interval, run after each completes)
-          prompt = trimmed;
-          intervalMs = MIN_INTERVAL_MS;
-        }
-
-        if (!prompt) {
-          pi.sendUserMessage("Usage: /loop [interval] <prompt>");
-          return;
-        }
-
-        startLoop(prompt, intervalMs, ctx);
-      },
+  pi.on("session_start", (_event, ctx) => {
+    activeCtx = ctx;
+    // Initial widget render
+    updateWidget(ctx);
+    // Refresh widget every second while loop is running
+    const refresh = setInterval(() => {
+      if (loopState && loopState.status === "running") {
+        updateWidget(ctx);
+      }
+    }, 1000);
+    pi.on("session_shutdown", async () => {
+      clearInterval(refresh);
     });
   });
 
   pi.on("session_shutdown", async () => {
     clearLoop();
+    activeCtx = undefined;
   });
 }

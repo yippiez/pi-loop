@@ -125,7 +125,6 @@ export default function loopExtension(pi: ExtensionAPI) {
       const border = (s: string) => theme.fg("error", s);
 
       container.addChild(new DynamicBorder(border));
-      container.addChild(new Text(theme.fg("error", theme.bold("Loop Active")), 1, 0));
       container.addChild(new Spacer(1));
       container.addChild(new Text(theme.fg("error", `Prompt:    ${loopState!.prompt}`), 1, 0));
       container.addChild(new Text(theme.fg("error", `Interval:  ${interval}`), 1, 0));

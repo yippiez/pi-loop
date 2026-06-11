@@ -47,34 +47,15 @@ export default function loopExtension(pi: ExtensionAPI) {
     loopState.timer = setTimeout(() => runIteration(), loopState!.intervalMs);
   }
 
-  function isAgentBusy(): boolean {
-    if (!activeCtx) return true;
-    try {
-      // Access internal state if available
-      return (activeCtx as any).isAgentBusy?.() ?? false;
-    } catch {
-      return false;
-    }
-  }
-
-  function runIteration() {
-    if (!loopState || loopState.status !== "stopped") {
-      if (!loopState) return;
-    }
-
-    // Skip if agent is busy
-    if (isAgentBusy()) {
-      scheduleNext();
-      return;
-    }
+  async function runIteration() {
+    if (!loopState || loopState.status !== "running") return;
 
     loopState.iteration++;
     try {
-      pi.sendUserMessage(loopState.prompt, { deliverAs: "followUp" });
+      // Use streamingBehavior to queue if agent is busy
+      (pi.sendUserMessage as any)(loopState.prompt, { streamingBehavior: "followUp" });
     } catch {
-      try {
-        pi.sendUserMessage(loopState.prompt);
-      } catch {}
+      // Skip if agent is busy and can't queue
     }
     scheduleNext();
   }

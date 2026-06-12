@@ -20,7 +20,7 @@
   ],
   "pi": {
     "extensions": [
-      "./extensions"
+      "./extensions/pi-loop/pi-loop.ts"
     ]
   },
   "peerDependencies": {

@@ -213,13 +213,7 @@ export default function loopExtension(pi: ExtensionAPI) {
   pi.registerCommand("loop:clear", {
     description: "Stop and clear the current loop",
     handler: async () => {
-      if (loopState) {
-        const n = loopState.iteration;
-        clearLoop();
-        showInfo(`Loop cleared after ${n} iterations.`);
-      } else {
-        showInfo("No active loop to clear.");
-      }
+      clearLoop();
     },
   });
 

@@ -3,7 +3,6 @@ import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 
 const MIN_INTERVAL_MS = 5000;
-const INFO_TYPE = "pi-loop-info";
 
 interface LoopState {
   prompt: string;
@@ -53,6 +52,7 @@ export default function loopExtension(pi: ExtensionAPI) {
   let loopState: LoopState | null = null;
   let activeCtx: ExtensionContext | undefined;
   let statusOpen = false;
+  let infoTimer: ReturnType<typeof setTimeout> | undefined;
 
   function clearLoop() {
     if (loopState?.timer) clearTimeout(loopState.timer);
@@ -66,7 +66,23 @@ export default function loopExtension(pi: ExtensionAPI) {
   }
 
   function showInfo(content: string) {
-    pi.sendMessage({ customType: INFO_TYPE, content, display: true, details: undefined });
+    if (!activeCtx?.hasUI) return;
+    if (infoTimer) clearTimeout(infoTimer);
+    activeCtx.ui.setWidget(
+      "pi-loop-info",
+      (_tui: any, theme: any) => ({
+        invalidate() {},
+        render(width: number): string[] {
+          return [theme.fg("dim", content.slice(0, Math.max(0, width)))];
+        },
+        dispose() {},
+      }),
+      { placement: "aboveEditor" },
+    );
+    infoTimer = setTimeout(() => {
+      activeCtx?.ui.setWidget("pi-loop-info", undefined);
+      infoTimer = undefined;
+    }, 2200);
   }
 
   async function runIteration() {
@@ -235,6 +251,8 @@ export default function loopExtension(pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     clearLoop();
+    if (infoTimer) clearTimeout(infoTimer);
+    infoTimer = undefined;
     activeCtx = undefined;
   });
 }

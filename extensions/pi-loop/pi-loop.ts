@@ -230,6 +230,7 @@ export default function loopExtension(pi: ExtensionAPI) {
     description: "Stop and clear the current loop",
     handler: async () => {
       clearLoop();
+      showInfo("No active loops.");
     },
   });
 

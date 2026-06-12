@@ -3,6 +3,7 @@ import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 
 const MIN_INTERVAL_MS = 5000;
+const INFO_TYPE = "pi-loop-info";
 
 interface LoopState {
   prompt: string;
@@ -64,11 +65,15 @@ export default function loopExtension(pi: ExtensionAPI) {
     loopState.timer = setTimeout(() => runIteration(), loopState!.intervalMs);
   }
 
+  function showInfo(content: string) {
+    pi.sendMessage({ customType: INFO_TYPE, content, display: true, details: undefined });
+  }
+
   async function runIteration() {
     if (!loopState || loopState.status !== "running") return;
     loopState.iteration++;
     try {
-      await (pi.sendUserMessage as any)(loopState.prompt, { streamingBehavior: "followUp" });
+      await (pi.sendUserMessage as any)(loopState.prompt, { deliverAs: "followUp" });
     } catch {}
     scheduleNext();
   }
@@ -113,7 +118,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 
   function showStatusBox(ctx: ExtensionContext) {
     if (!loopState || loopState.status !== "running") {
-      pi.sendUserMessage("No active loop.");
+      showInfo("No active loop.");
       return;
     }
     if (!ctx.hasUI) return;
@@ -178,7 +183,7 @@ export default function loopExtension(pi: ExtensionAPI) {
         if (loopState && loopState.status === "running" && activeCtx) {
           showStatusBox(activeCtx);
         } else {
-          pi.sendUserMessage("No active loop.");
+          showInfo("No active loop.");
         }
         return;
       }
@@ -197,7 +202,7 @@ export default function loopExtension(pi: ExtensionAPI) {
       }
 
       if (!prompt) {
-        pi.sendUserMessage("Usage: /loop [interval] <prompt>");
+        showInfo("Usage: /loop [interval] <prompt>");
         return;
       }
 
@@ -211,9 +216,9 @@ export default function loopExtension(pi: ExtensionAPI) {
       if (loopState) {
         const n = loopState.iteration;
         clearLoop();
-        pi.sendUserMessage(`Loop cleared after ${n} iterations.`);
+        showInfo(`Loop cleared after ${n} iterations.`);
       } else {
-        pi.sendUserMessage("No active loop to clear.");
+        showInfo("No active loop to clear.");
       }
     },
   });
